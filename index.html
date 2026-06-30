@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="color-scheme" content="dark light"/>
+<title>exam</title>
+<style>
+  :root{--bg:#0b0d10;--panel:#13171c;--line:#232a32;--txt:#e6edf3;--dim:#8b98a5;--accent:#4da3ff;--err:#f85149}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;-webkit-text-size-adjust:100%}
+  #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px}
+  .box{width:100%;max-width:300px;text-align:center}
+  .box .t{font-weight:700;letter-spacing:.5px;margin-bottom:18px}
+  .box .t b{color:var(--accent)}
+  .box input{width:100%;font-family:inherit;font-size:22px;text-align:center;letter-spacing:6px;
+    padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--txt);outline:none}
+  .box input:focus{border-color:var(--accent)}
+  .box button{width:100%;margin-top:12px;font-family:inherit;font-size:16px;font-weight:700;
+    padding:13px;border-radius:12px;border:0;background:var(--accent);color:#001022;cursor:pointer}
+  .box .err{color:var(--err);font-size:13px;min-height:18px;margin-top:12px}
+  .box .hint{color:var(--dim);font-size:12px;margin-top:14px;line-height:1.5}
+</style>
+</head>
+<body>
+  <div id="gate">
+    <div class="box">
+      <div class="t">exam<b>·</b>page</div>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" aria-label="PIN"/>
+      <button id="unlock">Unlock</button>
+      <div id="err" class="err"></div>
+      <div class="hint">Encrypted. Enter the PIN to view.</div>
+    </div>
+  </div>
+<script>
+const FILE="exam.enc.json", PIN_KEY="ep_pin", $=id=>document.getElementById(id);
+const b=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function decryptPayload(p,pin){
+  const baseKey=await crypto.subtle.importKey("raw",new TextEncoder().encode(pin),"PBKDF2",false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey({name:"PBKDF2",salt:b(p.salt),iterations:p.iter||200000,hash:"SHA-256"},
+    baseKey,{name:"AES-GCM",length:256},false,["decrypt"]);
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:b(p.iv)},key,b(p.ct));
+  return new TextDecoder().decode(pt);
+}
+async function reveal(pin){
+  const r=await fetch(FILE+"?t="+Date.now(),{cache:"no-store"});
+  if(!r.ok) throw new Error("fetch "+r.status);
+  const html=await decryptPayload(await r.json(),pin);   // throws on wrong PIN
+  sessionStorage.setItem(PIN_KEY,pin);
+  document.open(); document.write(html); document.close();
+}
+async function unlock(){
+  const pin=$("pin").value.trim(); if(!pin) return;
+  $("err").textContent="checking…";
+  try{ await reveal(pin); }catch(e){ $("err").textContent = (""+e).includes("fetch")?"Cannot load content.":"Wrong PIN."; }
+}
+$("unlock").addEventListener("click",unlock);
+$("pin").addEventListener("keydown",e=>{if(e.key==="Enter")unlock();});
+// Auto-reveal if already unlocked this session.
+(async()=>{ const p=sessionStorage.getItem(PIN_KEY); if(p){ try{await reveal(p);}catch(e){ sessionStorage.removeItem(PIN_KEY); } } setTimeout(()=>$("pin").focus(),50); })();
+</script>
+</body>
+</html>
